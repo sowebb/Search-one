@@ -5,27 +5,104 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NLQ Search (TABC)</title>
     <style>
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:24px}
-      .card{max-width:880px;margin:48px auto;padding:24px;border:1px solid #334155;border-radius:16px;background:#111827}
-      h1{margin:0 0 16px;font-size:24px}
-      input{width:100%;padding:12px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;border-radius:10px}
-      button{margin-top:12px;margin-right:8px;padding:10px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;cursor:pointer}
-      #status{opacity:.8;font-size:12px;margin-top:8px}
-      pre{white-space:pre-wrap;background:#0b1220;border:1px solid #334155;border-radius:10px;padding:12px;margin-top:16px;max-height:60vh;overflow:auto}
-      a{color:#93c5fd}
+      :root{--bg:#0f172a;--panel:#111827;--ink:#e2e8f0;--muted:#94a3b8;--line:#334155}
+      *{box-sizing:border-box}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:24px}
+      .card{max-width:960px;margin:32px auto;padding:24px;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+      h1{margin:0 0 12px;font-size:24px}
+      p{margin:0 0 16px;color:var(--muted)}
+      label{font-size:12px;color:var(--muted);display:block;margin:8px 0 6px}
+      input{width:100%;padding:12px;border:1px solid var(--line);background:#0b1220;color:var(--ink);border-radius:10px}
+      .row{display:grid;grid-template-columns:1fr;gap:12px;margin:8px 0 12px}
+      .controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+      button{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--ink);cursor:pointer}
+      button:hover{filter:brightness(1.1)}
+      .muted{font-size:12px;color:var(--muted)}
+      #status{opacity:.9;font-size:12px;margin-top:8px}
+      pre{white-space:pre-wrap;background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:16px;max-height:60vh;overflow:auto}
+      .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+      a{color:#93c5fd;text-decoration:none}
     </style>
   </head>
   <body>
     <div class="card">
-      <h1>NLQ Search (TABC)</h1>
-      <input id="q" placeholder="Try: top 10 in 77002" />
-      <div>
+      <div class="topbar">
+        <h1>NLQ Search (TABC)</h1>
+        <a href="/index.html">← Back to Home</a>
+      </div>
+      <p class="muted">Try queries like <em>top 10 in 77002</em> or <em>highest in Houston last month</em>.</p>
+
+      <div class="row">
+        <label for="api">NLQ Backend URL</label>
+        <input id="api" type="url" />
+      </div>
+
+      <label for="q">Your query</label>
+      <input id="q" type="search" placeholder="top 10 in 77002" />
+
+      <div class="controls">
         <button id="go">Search</button>
         <button id="ping">Ping NLQ</button>
+        <button id="sample">Sample Query</button>
       </div>
+
       <div id="status">Ready.</div>
       <pre id="out">Results will appear here…</pre>
     </div>
-    <script type="module" src="/assets/search.js"></script>
+
+    <script type="module">
+      const el = (id) => document.getElementById(id);
+      const out = el('out'), statusEl = el('status'), q = el('q');
+      const apiInput = el('api');
+
+      // LIVE backend default
+      const LIVE_API = "https://945b624d-d846-4466-a131-b9203e4b7753-00-1z54afa9crlcy.riker.replit.dev";
+
+      // Auto-config: on Firebase, use live API. Otherwise, check for URL param.
+      const onFirebase = /\.web\.app$|\.firebaseapp\.com$/.test(location.hostname);
+      apiInput.value = onFirebase ? LIVE_API : (new URLSearchParams(location.search).get('api') || LIVE_API);
+
+      // Prefill query from URL param if it exists
+      const usp = new URLSearchParams(location.search);
+      if (usp.get('q')) q.value = usp.get('q');
+
+      const setStatus = (m)=>{ statusEl.textContent = `${m} — ${new Date().toLocaleTimeString()}` };
+      const apiBase = ()=> (apiInput.value || '').trim().replace(/\/$/, '');
+
+      async function http(method, url, body){
+        const opt = { method, headers:{'Content-Type':'application/json'} };
+        if (body) opt.body = JSON.stringify(body);
+        const res = await fetch(url, opt);
+        const txt = await res.text();
+        let bodyJson; try{ bodyJson = JSON.parse(txt) } catch { bodyJson = { raw: txt } }
+        return { ok: res.ok, status: res.status, headers: Object.fromEntries(res.headers.entries()), body: bodyJson };
+      }
+
+      async function ping(){
+        setStatus('Pinging NLQ…');
+        try{
+          const r = await http('POST', `${apiBase()}/api/health`, {});
+          out.textContent = JSON.stringify(r, null, 2);
+          setStatus(r.ok ? 'Ping OK' : `Ping failed (${r.status})`);
+        }catch(e){ out.textContent = `Ping error: ${e}`; setStatus('Ping error'); }
+      }
+
+      async function run(){
+        const v = q.value.trim(); if (!v){ setStatus('Type a query first'); return; }
+        setStatus('Running search…');
+        try{
+          const r = await http('GET', `${apiBase()}/api/search-smart?q=${encodeURIComponent(v)}`);
+          out.textContent = JSON.stringify(r, null, 2);
+          setStatus(r.ok ? 'Search OK' : `Search failed (${r.status})`);
+        }catch(e){ out.textContent = `Search error: ${e}`; setStatus('Search error'); }
+      }
+
+      el('go').addEventListener('click', run);
+      el('ping').addEventListener('click', ping);
+      el('sample').addEventListener('click', ()=>{ q.value='top 10 in 77002'; q.focus(); });
+      q.addEventListener('keydown', (e)=>{ if(e.key==='Enter') run(); });
+
+      setStatus('Ready.');
+    </script>
   </body>
 </html>
