@@ -1,0 +1,51 @@
+name: Firestore ETL
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  
+  # Runs on the 5th day of every month at 5 AM UTC
+  schedule:
+    - cron: '0 5 5 * *'
+
+jobs:
+  backfill-and-refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: 'google-github-actions/auth@v2'
+      with:
+        service_account: 'bq-exporter@tabcsalesdata.iam.gserviceaccount.com'
+        credentials_json: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_TABC_ONE }}'
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install Dependencies
+      run: |
+        npm install --prefix scripts/etl @google-cloud/bigquery @google-cloud/firestore ts-node typescript
+        
+    - name: Run Monthly Refresh Script
+      run: npx ts-node scripts/etl/refresh_month.ts
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+        GCP_PROJECT: 'tabc-one'
+
+    - name: Run 5-Year Backfill Script (if needed)
+      # This step is commented out by default. To run the full backfill, 
+      # you can manually uncomment this line in the workflow file.
+      # run: npx ts-node scripts/etl/backfill_5y.ts
+      # env:
+      #   GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+      #   GCP_PROJECT: 'tabc-one'
+      run: echo "Full backfill step is commented out. Run manually if needed."
+
