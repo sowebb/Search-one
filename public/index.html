@@ -59,7 +59,7 @@
       const LIVE_API = "https://945b624d-d846-4466-a131-b9203e4b7753-00-1z54afa9crlcy.riker.replit.dev";
 
       // Auto-config: on Firebase, use live API. Otherwise, check for URL param.
-      const onFirebase = /\.web\.app$|\.firebaseapp\.com$/.test(location.hostname);
+      const onFirebase = /\.web\.app$/.test(location.hostname);
       apiInput.value = onFirebase ? LIVE_API : (new URLSearchParams(location.search).get('api') || LIVE_API);
 
       // Prefill query from URL param if it exists
