@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NLQ Search (TABC)</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:24px}
+      .card{max-width:880px;margin:48px auto;padding:24px;border:1px solid #334155;border-radius:16px;background:#111827}
+      h1{margin:0 0 16px;font-size:24px}
+      input{width:100%;padding:12px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;border-radius:10px}
+      button{margin-top:12px;margin-right:8px;padding:10px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;cursor:pointer}
+      #status{opacity:.8;font-size:12px;margin-top:8px}
+      pre{white-space:pre-wrap;background:#0b1220;border:1px solid #334155;border-radius:10px;padding:12px;margin-top:16px;max-height:60vh;overflow:auto}
+      a{color:#93c5fd}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>NLQ Search (TABC)</h1>
+      <input id="q" placeholder="Try: top 10 in 77002" />
+      <div>
+        <button id="go">Search</button>
+        <button id="ping">Ping NLQ</button>
+      </div>
+      <div id="status">Ready.</div>
+      <pre id="out">Results will appear here…</pre>
+    </div>
+    <script type="module" src="/assets/search.js"></script>
+  </body>
+</html>
