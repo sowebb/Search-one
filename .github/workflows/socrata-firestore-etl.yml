@@ -1,0 +1,112 @@
+name: Socrata → Firestore ETL
+
+on:
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "YYYY-MM to load (default: last complete month)"
+        required: false
+      zips:
+        description: "Comma-separated ZIPs (default: 77002)"
+        required: false
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare ETL env
+        run: |
+          npm init -y --silent
+          npm i firebase-admin node-fetch@3 dayjs
+
+      - name: Write ETL script
+        run: |
+          cat > etl.mjs <<'NODE'
+          import fetch from 'node-fetch';
+          import admin from 'firebase-admin';
+          import dayjs from 'dayjs';
+
+          // --- Secrets / inputs ---
+          const svc = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_TABC_ONE);
+          const DATASET = process.env.SOC_DATASET_ID_RECEIPTS || 'na4x-254f';
+          const DOMAIN  = process.env.SOCRATA_DOMAIN || 'data.texas.gov';
+          const APP_TOKEN = process.env.SOCRATA_APP_TOKEN || '';
+
+          const inputMonth = process.env.INPUT_MONTH;
+          const month = (inputMonth && /^\d{4}-\d{2}$/.test(inputMonth))
+            ? inputMonth
+            : dayjs().subtract(1, 'month').format('YYYY-MM');
+
+          const zips = (process.env.INPUT_ZIPS || '77002')
+            .split(',').map(z => z.trim()).filter(Boolean);
+
+          // --- Firestore ---
+          admin.initializeApp({ credential: admin.credential.cert(svc) });
+          const db = admin.firestore();
+
+          // --- Date window for Socrata ---
+          const start = dayjs(`${month}-01`);
+          const end   = start.endOf('month');
+          const startIso = start.format('YYYY-MM-DD') + 'T00:00:00';
+          const endIso   = end.format('YYYY-MM-DD') + 'T23:59:59';
+
+          async function fetchZip(zip) {
+            const url = new URL(`https://${DOMAIN}/resource/${DATASET}.json`);
+            url.searchParams.set('$select', 'taxpayer_name, location_zip, sum(total_receipts) as total_sales');
+            url.searchParams.set('$where', `obligation_end_date between '${startIso}' and '${endIso}' AND location_zip='${zip}'`);
+            url.searchParams.set('$group', 'taxpayer_name, location_zip');
+            url.searchParams.set('$order', 'total_sales DESC');
+            url.searchParams.set('$limit', '10');
+
+            const headers = {};
+            if (APP_TOKEN) headers['X-App-Token'] = APP_TOKEN;
+
+            const res = await fetch(url, { headers });
+            if (!res.ok) throw new Error(`Socrata ${zip} -> ${res.status} ${res.statusText}`);
+            const rows = await res.json();
+            return rows.map((r, i) => ({
+              rank: i + 1,
+              venue: r.taxpayer_name ?? 'Unknown',
+              zip: r.location_zip ?? zip,
+              total_sales: Number(r.total_sales ?? 0),
+              month,
+            }));
+          }
+
+          async function main() {
+            // keep a simple pointer for the UI
+            await db.collection('meta').doc('current_month').set({ value: month }, { merge: true });
+
+            for (const zip of zips) {
+              const items = await fetchZip(zip);
+              const id = `${month}_${zip}`;
+              await db.collection('leaderboards_monthly_by_zip').doc(id).set({
+                month, zip,
+                updated_at: admin.firestore.FieldValue.serverTimestamp(),
+                items,
+              }, { merge: true });
+              console.log(`Wrote leaderboards_monthly_by_zip/${id} (${items.length} items)`);
+            }
+          }
+
+          main().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
+      - name: Run ETL
+        env:
+          FIREBASE_SERVICE_ACCOUNT_TABC_ONE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TABC_ONE }}
+          SOC_DATASET_ID_RECEIPTS:          ${{ secrets.SOC_DATASET_ID_RECEIPTS }}
+          SOCRATA_DOMAIN:                   ${{ secrets.SOCRATA_DOMAIN }}
+          SOCRATA_APP_TOKEN:                ${{ secrets.SOCRATA_APP_TOKEN }}
+          INPUT_MONTH:                      ${{ github.event.inputs.month }}
+          INPUT_ZIPS:                       ${{ github.event.inputs.zips }}
+        run: node etl.mjs
